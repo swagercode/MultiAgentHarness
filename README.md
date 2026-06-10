@@ -46,6 +46,8 @@ Supported native window backends are `auto` and `powershell-windows`.
 
 The harness uses only the official Codex CLI as a subprocess. It does not implement authentication and does not read Codex auth files.
 
+For reproducing the local source-built Codex CLI setup on another Windows machine, see [Codex CLI porting notes](docs/CODEX_CLI_PORTING.md).
+
 If Codex is unavailable, install and log in:
 
 ```powershell
