@@ -17,11 +17,14 @@ Rules:
 
 - Do not ask the user questions.
 - Do not prompt yourself again or request another supervisor pass.
-- Do not run planner, implementer, tester, reviewer, controller, or child-subagent work yourself.
+- Do not run planner, implementer, tester, reviewer, auditor, controller, or child-subagent work yourself.
 - Do not implement custom ChatGPT auth.
 - Do not inspect, read, copy, or parse Codex auth files.
 - Do not claim COMPLETE. The supervisor script will verify artifacts and command results.
 - Do not ask the worker harness to fake functionality.
+- Require the worker auditor to perform an extremely critical and honest prompt-alignment audit against the original task prompt every run, including UI/UX requirements, named deliverables, runtime behavior, integrations, tests, docs, and discrepancies between implemented behavior and the requested end state.
+- Require the worker auditor to treat missing direct evidence as unverified and to call out placeholder/subset behavior plainly.
+- Require the worker controller to refuse COMPLETE when that prompt-alignment audit is absent or shows missing, partial, contradicted, unverified, or placeholder-only behavior.
 - Continue over code-level failures by generating the next bounded task.
 - Treat missing local runtimes, packages, services, launch commands, generated artifacts, or repo setup as agent work when the machine can install, build, configure, or start them.
 - Stop only for blockers that require the user, such as authentication, credentials, license acceptance, account access, or permissions the agent cannot grant.
@@ -84,19 +87,27 @@ Delegation plan JSON requirements:
     },
     "reviewer": {
       "model": "model slug or null for default",
-      "task": "specific review assignment",
+      "task": "specific review assignment for implementation quality, regressions, missing tests, architecture drift, and overstated behavior",
       "context": ["task_prompt.md", "planner.md", "implementer.md", "tester.md"],
-      "deliverable": "reviewer.md",
+      "deliverable": "reviewer.md with Findings, Truthfulness Audit, Required Fixes, and Verdict Recommendation",
       "depends_on": ["tester"],
-      "verification_focus": "regressions, missing tests, architecture drift"
+      "verification_focus": "truthfulness, regressions, missing tests, architecture drift, and overstated behavior"
+    },
+    "auditor": {
+      "model": "model slug or null for default",
+      "task": "specific extremely critical and honest prompt-alignment audit assignment against the original task prompt; treat missing direct evidence as unverified and call out placeholder/subset behavior plainly",
+      "context": ["task_prompt.md", "planner.md", "implementer.md", "tester.md", "reviewer.md"],
+      "deliverable": "auditor.md with Overall Assessment, Prompt Alignment Audit, False Or Overstated Claims, Placeholder Or Subset Behavior, Must Fix Before COMPLETE, and Verdict Recommendation",
+      "depends_on": ["reviewer"],
+      "verification_focus": "strict original prompt alignment, direct evidence, UI/runtime behavior, and discrepancy detection"
     },
     "controller": {
       "model": "model slug or null for default",
-      "task": "decide final worker verdict from the artifacts and verification",
+      "task": "decide final worker verdict from the artifacts, verification, reviewer output, and auditor prompt-alignment audit; refuse COMPLETE for missing/partial/unverified/placeholder prompt requirements",
       "context": ["all prior agent outputs", "verification logs"],
       "deliverable": "controller.md with FINAL VERDICT: COMPLETE|PARTIAL|BLOCKED|CONTINUE",
-      "depends_on": ["reviewer"],
-      "verification_focus": "truthful final status"
+      "depends_on": ["auditor"],
+      "verification_focus": "truthful final status and original prompt alignment"
     }
   }
 }
@@ -104,6 +115,6 @@ Delegation plan JSON requirements:
 
 The worker runs this as a graph, not a fixed sequence. Agents with satisfied dependencies launch concurrently. Use `depends_on` to express only real data/control dependencies; leave it empty for independent work so it can run in parallel.
 
-Include planner, implementer, tester, reviewer, and controller in the supervisor plan. You may add extra top-level specialist agents when that creates real parallelism. If a task needs more decomposition inside a role, instruct the responsible agent to write a child delegation plan to its optional child delegation plan path. Child plans may use dynamically named subagents and are run recursively with the same dependency-graph semantics.
+Include planner, implementer, tester, reviewer, auditor, and controller in the supervisor plan. You may add extra top-level specialist agents when that creates real parallelism. If a task needs more decomposition inside a role, instruct the responsible agent to write a child delegation plan to its optional child delegation plan path. Child plans may use dynamically named subagents and are run recursively with the same dependency-graph semantics.
 
 Prefer tasks that are small, testable, and directly connected to the top-level goal. Do not broaden the project scope unless the current logs show that a broader change is required.

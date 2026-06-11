@@ -19,7 +19,7 @@ from typing import Any
 
 HARNESS_ROOT = Path(__file__).resolve().parents[1]
 ROOT = Path.cwd()
-WORKER_AGENT_ORDER = ("planner", "implementer", "tester", "reviewer", "controller")
+WORKER_AGENT_ORDER = ("planner", "implementer", "tester", "reviewer", "auditor", "controller")
 AGENT_ORDER = ("manager", *WORKER_AGENT_ORDER)
 BUILTIN_AGENT_ROLES = set(AGENT_ORDER)
 VERDICTS = ("COMPLETE", "PARTIAL", "BLOCKED", "CONTINUE")
@@ -365,6 +365,44 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def prepare_iteration_dir(iter_dir: Path) -> None:
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    managed_files = [
+        "controller.md",
+        "delegation_plan.json",
+        "report.md",
+        "scheduler_trace.log",
+        "summary.json",
+    ]
+    managed_patterns = [
+        "*.prompt.txt",
+        "*.stdout.txt",
+        "*.stderr.txt",
+        "*.last_message.txt",
+        "*.children.json",
+        "*.launch.ps1",
+        "manager.md",
+        "planner.md",
+        "implementer.md",
+        "tester.md",
+        "reviewer.md",
+        "auditor.md",
+    ]
+    for name in managed_files:
+        path = iter_dir / name
+        if path.exists() and path.is_file():
+            path.unlink()
+    for pattern in managed_patterns:
+        for path in iter_dir.glob(pattern):
+            if path.is_file():
+                path.unlink()
+    verification_dir = iter_dir / "verification"
+    if verification_dir.exists():
+        for path in verification_dir.glob("*"):
+            if path.is_file():
+                path.unlink()
+
+
 def _read_stream(
     pipe: Any,
     *,
@@ -628,7 +666,13 @@ def common_codex_native_paths() -> list[Path]:
     if system != "windows":
         return []
     source_roots = []
-    for root in (HARNESS_ROOT.parent, ROOT.parent, Path.cwd().parent):
+    for root in (
+        home / "Documents" / "Code",
+        home / "Code",
+        HARNESS_ROOT.parent,
+        ROOT.parent,
+        Path.cwd().parent,
+    ):
         if root not in source_roots:
             source_roots.append(root)
     roots = [
@@ -636,6 +680,16 @@ def common_codex_native_paths() -> list[Path]:
         home / ".codex" / "codex" / "node_modules" / "@openai",
     ]
     paths: list[Path] = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        paths.append(Path(local_app_data) / "Programs" / "OpenAI" / "Codex" / "bin" / "codex.exe")
+    codex_home = Path(os.environ.get("CODEX_HOME") or (home / ".codex"))
+    paths.extend(
+        [
+            codex_home / "packages" / "standalone" / "current" / "bin" / "codex.exe",
+            codex_home / "packages" / "standalone" / "current" / "codex.exe",
+        ]
+    )
     for root in source_roots:
         paths.extend(root.glob("codex*/codex-rs/target/debug/codex.exe"))
         paths.extend(root.glob("codex*/codex-rs/target/release/codex.exe"))
@@ -794,8 +848,26 @@ def detect_codex(codex_bin: str, timeout_seconds: int, allow_npx: bool) -> dict[
                 "failure": None if version["returncode"] == 0 else "version command failed",
             }
         )
-        checked.append(check)
         if version["returncode"] == 0:
+            exec_probe = run_command(
+                [*command_base, "exec", "--help"],
+                cwd=ROOT,
+                timeout_seconds=min(timeout_seconds, 30),
+                name="codex_exec_help",
+            )
+            check.update(
+                {
+                    "exec_help_command": [*command_base, "exec", "--help"],
+                    "exec_help_returncode": exec_probe["returncode"],
+                    "exec_help_timed_out": exec_probe["timed_out"],
+                    "exec_help_stdout": exec_probe["stdout"],
+                    "exec_help_stderr": exec_probe["stderr"],
+                    "exec_help_passed": exec_probe["returncode"] == 0,
+                    "failure": None if exec_probe["returncode"] == 0 else "exec help command failed",
+                }
+            )
+        checked.append(check)
+        if version["returncode"] == 0 and check.get("exec_help_passed"):
             selected = candidate
             break
 
@@ -976,13 +1048,36 @@ def agent_template(agent: str) -> Path:
 def default_delegation_plan(iter_dir: Path) -> dict[str, Any]:
     agents: dict[str, Any] = {}
     for agent in WORKER_AGENT_ORDER:
+        task = f"Perform the {agent} role for this iteration."
+        verification_focus = "configured verification commands"
+        if agent == "reviewer":
+            task = (
+                "Review implementation quality, truthfulness, regressions, missing tests, "
+                "and architecture fit. Flag any prompt-alignment concerns for the auditor."
+            )
+            verification_focus = "truthfulness, regressions, architecture fit, and missing tests"
+        elif agent == "auditor":
+            task = (
+                "Perform an extremely critical and honest requirement-by-requirement "
+                "prompt-alignment audit against the original task prompt. Treat missing direct "
+                "evidence as unverified, call out placeholder/subset behavior plainly, and "
+                "recommend CONTINUE unless every material requested behavior is truly satisfied."
+            )
+            verification_focus = "strict original prompt alignment and discrepancy detection"
+        elif agent == "controller":
+            task = (
+                "Decide the final worker verdict from artifacts, verification, reviewer output, "
+                "and the auditor prompt-alignment audit. Refuse COMPLETE for missing, partial, "
+                "contradicted, unverified, or placeholder-only prompt requirements."
+            )
+            verification_focus = "truthful final status and original prompt alignment"
         agents[agent] = {
             "model": None,
-            "task": f"Perform the {agent} role for this iteration.",
+            "task": task,
             "context": ["task prompt", "previous agent outputs"],
             "deliverable": f"{agent}.md",
             "depends_on": [] if agent == "planner" else [WORKER_AGENT_ORDER[WORKER_AGENT_ORDER.index(agent) - 1]],
-            "verification_focus": "configured verification commands",
+            "verification_focus": verification_focus,
         }
     return {
         "manager": {
@@ -1170,7 +1265,13 @@ def run_agent(
             timeout_seconds=args.timeout_seconds,
         )
     else:
-        command = codex_command(f"Read and follow this prompt file: {prompt_path}", codex_info, agent_output, model=selected_model)
+        last_message_path = iter_dir / f"{safe_agent_stem(agent)}.last_message.txt"
+        command = codex_command(
+            f"Read and follow this prompt file: {prompt_path}",
+            codex_info,
+            last_message_path,
+            model=selected_model,
+        )
         print(f"agent {agent}: {' '.join(command[:-1])} <prompt-file>")
         result = run_command(
             command,
@@ -1436,6 +1537,7 @@ def command_ok(results_by_name: dict[str, CommandResult], name: str) -> bool:
 
 def classify_iteration(
     *,
+    agent_results: list[CommandResult],
     verification_results: list[CommandResult],
     controller_text: str,
     codex_available: bool,
@@ -1446,16 +1548,20 @@ def classify_iteration(
 
     results_by_name = {r["name"]: r for r in verification_results}
     verification_ok = all(command_ok(results_by_name, name) for name in results_by_name)
+    agents_ok = all(not command_result_failed(result) for result in agent_results)
     controller_verdict = extract_controller_verdict(controller_text)
-    if verification_ok and controller_verdict == "COMPLETE":
+    combined_results = [*agent_results, *verification_results]
+    if verification_ok and agents_ok and controller_verdict == "COMPLETE":
         return "COMPLETE"
-    if controller_verdict == "BLOCKED" and external_blocker_seen(verification_results, controller_text):
+    if verification_ok and agents_ok and agents_ran and not controller_text.strip():
+        return "COMPLETE"
+    if controller_verdict == "BLOCKED" and external_blocker_seen(combined_results, controller_text):
         return "BLOCKED"
-    if external_blocker_seen(verification_results, controller_text):
+    if external_blocker_seen(combined_results, controller_text):
         return "BLOCKED"
     if controller_verdict in ("PARTIAL", "CONTINUE"):
         return controller_verdict
-    if verification_ok and agents_ran:
+    if verification_ok and agents_ok and agents_ran:
         return "PARTIAL"
     return "CONTINUE"
 
@@ -1606,7 +1712,7 @@ def main() -> int:
 
     for iteration in range(1, iterations_to_run + 1):
         iter_dir = log_dir / f"iteration_{iteration:03d}"
-        iter_dir.mkdir(parents=True, exist_ok=True)
+        prepare_iteration_dir(iter_dir)
         delegation_plan = supplied_delegation_plan or (iter_dir / "delegation_plan.json")
         print(f"iteration {iteration}: logs={iter_dir}")
 
@@ -1663,6 +1769,7 @@ def main() -> int:
         )
         controller_text = read_text(iter_dir / "controller.md")
         final_verdict = classify_iteration(
+            agent_results=agent_results,
             verification_results=verification_results,
             controller_text=controller_text,
             codex_available=codex_info["available"],

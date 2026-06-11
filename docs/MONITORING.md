@@ -19,6 +19,6 @@ Run monitored supervisor:
 python tools/codex_supervisor.py --repo-root C:\path\to\repo --goal "Complete the next verified milestone" --monitor-backend auto
 ```
 
-The supervisor window receives the generated supervisor prompt as the initial user message. After it writes `task_prompt.md` and `delegation_plan.json`, the worker opens planner, implementer, tester, reviewer, and controller Codex CLI windows according to that JSON.
+The supervisor window receives the generated supervisor prompt as the initial user message. After it writes `task_prompt.md` and `delegation_plan.json`, the worker opens planner, implementer, tester, reviewer, auditor, and controller Codex CLI windows according to that JSON.
 
 There is no tmux, WSL, Windows Terminal, or verification log-tail window backend.

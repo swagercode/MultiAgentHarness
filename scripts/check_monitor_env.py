@@ -60,6 +60,7 @@ def main() -> int:
         and powershell_version is not None
         and powershell_version["returncode"] == 0
         and codex["available"]
+        and codex["exec_available"]
     )
 
     lines = [

@@ -15,6 +15,9 @@ Rules:
 - Use a stronger model for planning, implementation, architecture-sensitive edits, risky migrations, and final control decisions.
 - Do not select paid priority service tiers; model selection is separate from service tier.
 - Preserve existing architecture and configured verification.
+- Add an auditor assignment after reviewer and before controller. The auditor must be extremely critical and honest, must perform a requirement-by-requirement prompt-alignment audit against the original task prompt, and must treat missing direct evidence as unverified.
+- The auditor assignment must include UI/UX requirements, named deliverables, runtime behavior, integrations, tests, docs, and any discrepancy between implemented behavior and requested end state.
+- The controller assignment must refuse COMPLETE when the auditor prompt-alignment audit is absent or shows missing, partial, contradicted, unverified, or placeholder-only behavior.
 - Assign missing local runtimes, packages, services, launch commands, generated artifacts, or repo setup to agents when the machine can install, build, configure, or start them.
 - Mark only user-only blockers honestly instead of assigning impossible work: authentication, credentials, license acceptance, account access, or permissions the agent cannot grant.
 
@@ -56,22 +59,30 @@ Also write valid JSON to the required delegation plan path. The JSON must use th
     },
     "reviewer": {
       "model": "gpt-5.5",
-      "task": "...",
-      "context": ["implementer.md", "tester.md", "..."],
-      "deliverable": "...",
+      "task": "Review implementation quality, truthfulness, regressions, missing tests, and architecture fit; flag any prompt-alignment concerns for the auditor.",
+      "context": ["task_prompt.md", "planner.md", "implementer.md", "tester.md", "..."],
+      "deliverable": "reviewer.md with Findings, Truthfulness Audit, Required Fixes, and Verdict Recommendation",
       "depends_on": ["tester"],
-      "verification_focus": "..."
+      "verification_focus": "truthfulness, regressions, missing tests, architecture drift, and overstated behavior"
+    },
+    "auditor": {
+      "model": "gpt-5.5",
+      "task": "Perform an extremely critical and honest requirement-by-requirement prompt-alignment audit against the original task prompt. Treat missing direct evidence as unverified and call out placeholder/subset behavior plainly.",
+      "context": ["task_prompt.md", "planner.md", "implementer.md", "tester.md", "reviewer.md", "..."],
+      "deliverable": "auditor.md with Overall Assessment, Prompt Alignment Audit, False Or Overstated Claims, Placeholder Or Subset Behavior, Must Fix Before COMPLETE, and Verdict Recommendation",
+      "depends_on": ["reviewer"],
+      "verification_focus": "strict original prompt alignment, direct evidence, UI/runtime behavior, and discrepancy detection"
     },
     "controller": {
       "model": "gpt-5.5",
-      "task": "...",
-      "context": ["planner.md", "implementer.md", "tester.md", "reviewer.md", "..."],
+      "task": "Decide final verdict only after checking verification and the auditor prompt-alignment audit; refuse COMPLETE for missing/partial/unverified/placeholder prompt requirements.",
+      "context": ["planner.md", "implementer.md", "tester.md", "reviewer.md", "auditor.md", "..."],
       "deliverable": "FINAL VERDICT: COMPLETE|PARTIAL|BLOCKED|CONTINUE plus rationale",
-      "depends_on": ["reviewer"],
-      "verification_focus": "..."
+      "depends_on": ["auditor"],
+      "verification_focus": "truthful final status and original prompt alignment"
     }
   }
 }
 ```
 
-Include planner, implementer, tester, reviewer, and controller unless the direct worker task is explicitly narrower. You may add extra specialist agents when that creates real parallelism. If a model slug is uncertain, use the current default model string and explain the uncertainty in the manager output.
+Include planner, implementer, tester, reviewer, auditor, and controller unless the direct worker task is explicitly narrower. You may add extra specialist agents when that creates real parallelism. If a model slug is uncertain, use the current default model string and explain the uncertainty in the manager output.

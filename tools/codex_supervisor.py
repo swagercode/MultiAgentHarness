@@ -164,7 +164,7 @@ Cycle log directory: {cycle_dir}
 
 Read the repo state and the supervisor template below. Generate exactly one bounded, concrete task prompt for the worker multi-agent harness and write it to the required generated task prompt path.
 
-Then write the complete worker delegation JSON to the required delegation plan JSON path. This JSON is the dependency graph run script for the downstream Codex CLI windows. It must assign planner, implementer, tester, reviewer, and controller tasks, dependencies, context, deliverables, verification focus, and model recommendations. It may also add extra top-level specialist agents when that creates real parallelism. Do not ask the user questions. Do not run worker tasks yourself.
+Then write the complete worker delegation JSON to the required delegation plan JSON path. This JSON is the dependency graph run script for the downstream Codex CLI windows. It must assign planner, implementer, tester, reviewer, auditor, and controller tasks, dependencies, context, deliverables, verification focus, and model recommendations. It may also add extra top-level specialist agents when that creates real parallelism. Do not ask the user questions. Do not run worker tasks yourself.
 
 --- Supervisor template ---
 {template}
